@@ -22,15 +22,22 @@ public class DirectoryWatcherService {
     private DirectoryServiceProperties properties;
     private static final Logger LOGGER = Logger.getLogger(DirectoryWatcherService.class);
 
+    private Instant lastCleanDone = null;
+
     @Autowired
     public DirectoryWatcherService(DirectoryServiceProperties properties) {
         this.properties = properties;
         try {
             this.watcher = FileSystems.getDefault().newWatchService();
             this.keys = new HashMap<WatchKey, Path>();
-            initOutputSymlinkDirectory(Paths.get(properties.getSymlinkDirectory()));
-            cleanSymbolicLinks(Paths.get(properties.getSymlinkDirectory()));
-            walkAndRegisterDirectories(Paths.get(properties.getDirectory()));
+            lastCleanDone = Instant.now();
+            Path dir = Paths.get(properties.getDirectory());
+            Path symLinkDir = Paths.get(properties.getSymlinkDirectory());
+            initOutputSymlinkDirectory(symLinkDir);
+            cleanSymbolicLinks(symLinkDir);
+            purgeSymbolicLinks(symLinkDir);
+            walkFileTree(dir);
+            walkAndRegisterDirectories(dir);
         } catch (IOException ea) {
             LOGGER.error(ea);
         }
@@ -51,7 +58,7 @@ public class DirectoryWatcherService {
                     Path targetSymlink = Files.readSymbolicLink(path);
                     if (targetSymlink.equals(target)){
                         Files.delete(path);
-                        System.out.println("Deleted symbolicLink: " + path);
+                        LOGGER.info("Deleted symbolicLink: " + path);
                         break;
                     }
                 }
@@ -59,17 +66,21 @@ public class DirectoryWatcherService {
         }
     }
 
+    /**
+     *  Purge all simbolic links for files that are more than the specified time without modifications (the pipeline just finished)
+     */
     private void purgeSymbolicLinks(Path dir) throws IOException {
          DirectoryStream<Path> stream = Files.newDirectoryStream(Paths.get(properties.getSymlinkDirectory()));
         for (Path path : stream) {
             if (Files.isSymbolicLink(path)) {
+                Path targetSymlink = Files.readSymbolicLink(path);
                 long now = Instant.now().getEpochSecond();
-                BasicFileAttributes attr = Files.readAttributes(path, BasicFileAttributes.class);
+                BasicFileAttributes attr = Files.readAttributes(targetSymlink, BasicFileAttributes.class);
                 long lastModified = attr.lastModifiedTime().toInstant().getEpochSecond();
-                lastModified = lastModified + properties.getSecondsWithoutModifications();
+                lastModified = lastModified + ( properties.getMinutesWithoutModifications() * 60 );
 
                 if (lastModified < now){
-                    System.out.println("Deleted symbolicLink: " + path + ". More than " + properties.getSecondsWithoutModifications() + " without modifications");
+                    LOGGER.info("Deleted symbolicLink: " + path + ". There were more than " + properties.getMinutesWithoutModifications() + " minutes without modifications in the target file: " + targetSymlink);
                     Files.delete(path);
                 }
             }
@@ -139,7 +150,7 @@ public class DirectoryWatcherService {
  
             Path dir = keys.get(key);
             if (dir == null) {
-                System.err.println("WatchKey not recognized!!");
+                LOGGER.error("WatchKey not recognized!!");
                 continue;
             }
  
@@ -153,7 +164,7 @@ public class DirectoryWatcherService {
                 Path child = dir.resolve(name);
  
                 // print out event
-                System.out.format("%s: %s\n", event.kind().name(), child);
+                LOGGER.info(event.kind().name() + ": " + child);
  
                 try {
                     // if directory is created, and watching recursively, then register it and its sub-directories
@@ -168,7 +179,13 @@ public class DirectoryWatcherService {
                     }else if (kind == ENTRY_DELETE) {
                         deleteSymboliclinkWithTarget(child);
                     }
-                    purgeSymbolicLinks(Paths.get(properties.getSymlinkDirectory()));
+
+                    if ( ( Instant.now().getEpochSecond() - (properties.getMinutesToPurgeAndClean() * 60) ) > lastCleanDone.getEpochSecond() ){
+                        LOGGER.info("Purging and cleaning simbolic links...");
+                        Path outDir = Paths.get(properties.getSymlinkDirectory());
+                        purgeSymbolicLinks(outDir);
+                        cleanSymbolicLinks(outDir);
+                    }
                 } catch (IOException x) {
                     // do something useful
                 }
@@ -199,6 +216,44 @@ public class DirectoryWatcherService {
         if (Files.exists(link)) {
             Files.delete(link);
         }
+        LOGGER.info("Creating simbolic link: " + link + " with target: " + target + " to be monitored.");
         Files.createSymbolicLink(link, target);
+    }
+
+    /**
+     * Gets the last modification in a file that is being monitored
+     */
+    private Instant getLastModification(Path dir) throws IOException {
+        Instant result = null;
+        DirectoryStream<Path> stream = Files.newDirectoryStream(dir);
+        for (Path path : stream) {
+            if (Files.isSymbolicLink(path)) {
+                Path targetSymlink = Files.readSymbolicLink(path);
+                BasicFileAttributes attr = Files.readAttributes(path, BasicFileAttributes.class);
+                if (    (result == null) || 
+                        (attr.lastModifiedTime().toInstant().getEpochSecond() > result.getEpochSecond()) ){
+                    result = attr.lastModifiedTime().toInstant();
+                }
+            }
+        }   
+        return result;
+    }
+
+    private void walkFileTree(Path dir) throws IOException {
+        Path symLinkDir = Paths.get(properties.getSymlinkDirectory());
+        final Instant lastModification = getLastModification(symLinkDir);
+        Files.walkFileTree(dir, new SimpleFileVisitor<Path>() {
+            @Override
+            public FileVisitResult visitFile(Path path, BasicFileAttributes attrs) throws IOException {
+                BasicFileAttributes attr = Files.readAttributes(path, BasicFileAttributes.class);
+                if  ( (lastModification != null) && (attr.lastModifiedTime().toInstant().getEpochSecond() > lastModification.getEpochSecond()) ){
+                    UUID uuid = UUID.randomUUID();
+                    Path link = Paths.get(properties.getSymlinkDirectory(), uuid.toString());
+                    createSymbolicLink (path, link);
+                }
+                
+                return FileVisitResult.CONTINUE;
+            }
+        });
     }
 }

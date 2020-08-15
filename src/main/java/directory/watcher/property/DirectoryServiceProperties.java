@@ -11,7 +11,8 @@ import org.springframework.stereotype.Component;
 public class DirectoryServiceProperties {
     private String directory;
     private String symlinkDirectory;
-    private int secondsWithoutModifications;
+    private int minutesWithoutModifications;
+    private int minutesToPurgeAndClean;
 
     public String getDirectory() {
         return directory;
@@ -29,11 +30,19 @@ public class DirectoryServiceProperties {
         this.symlinkDirectory = directory;
     }
 
-    public int getSecondsWithoutModifications() {
-        return secondsWithoutModifications;
+    public int getMinutesWithoutModifications() {
+        return minutesWithoutModifications;
     }
 
-    public void setSecondsWithoutModifications(int seconds) {
-        this.secondsWithoutModifications = seconds;
+    public void setMinutesWithoutModifications(int minutes) {
+        this.minutesWithoutModifications = minutes;
+    }
+
+    public int getMinutesToPurgeAndClean() {
+        return minutesToPurgeAndClean;
+    }
+
+    public void setMinutesToPurgeAndClean(int minutes) {
+        this.minutesToPurgeAndClean = minutes;
     }
 }
