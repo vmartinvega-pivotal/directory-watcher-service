@@ -31,6 +31,7 @@ public class DirectoryWatcherService {
             this.watcher = FileSystems.getDefault().newWatchService();
             this.keys = new HashMap<WatchKey, Path>();
             lastCleanDone = Instant.now();
+            LOGGER.info("Constructor: " + properties);
             Path dir = Paths.get(properties.getDirectory());
             Path symLinkDir = Paths.get(properties.getSymlinkDirectory());
             initOutputSymlinkDirectory(symLinkDir);
@@ -164,7 +165,7 @@ public class DirectoryWatcherService {
                 Path child = dir.resolve(name);
  
                 // print out event
-                LOGGER.info(event.kind().name() + ": " + child);
+                LOGGER.debug(event.kind().name() + ": " + child);
  
                 try {
                     // if directory is created, and watching recursively, then register it and its sub-directories
@@ -188,6 +189,7 @@ public class DirectoryWatcherService {
                         Path outDir = Paths.get(properties.getSymlinkDirectory());
                         purgeSymbolicLinks(outDir);
                         cleanSymbolicLinks(outDir);
+                        lastCleanDone = Instant.now();
                     }
                 } catch (IOException x) {
                     // do something useful
