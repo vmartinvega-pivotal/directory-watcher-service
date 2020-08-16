@@ -172,14 +172,17 @@ public class DirectoryWatcherService {
                         if (Files.isDirectory(child)) {
                             walkAndRegisterDirectories(child);
                         } else{
-                            UUID uuid = UUID.randomUUID();
-                            Path link = Paths.get(properties.getSymlinkDirectory(), uuid.toString());
-                            createSymbolicLink (child, link);
+                            // Checks if the file is a log file (jenkins job log)
+                            if (Files.isRegularFile(child) && child.endsWith("log")){
+                                createSymbolicLink (child);
+                            }
                         }
                     }else if (kind == ENTRY_DELETE) {
                         deleteSymboliclinkWithTarget(child);
                     }
 
+                    // Purging and cleaning directory
+                    //
                     if ( ( Instant.now().getEpochSecond() - (properties.getMinutesToPurgeAndClean() * 60) ) > lastCleanDone.getEpochSecond() ){
                         LOGGER.info("Purging and cleaning simbolic links...");
                         Path outDir = Paths.get(properties.getSymlinkDirectory());
@@ -212,10 +215,9 @@ public class DirectoryWatcherService {
         this.properties = properties;
     }
 
-    private void createSymbolicLink(Path target, Path link) throws IOException {
-        if (Files.exists(link)) {
-            Files.delete(link);
-        }
+    private void createSymbolicLink(Path target) throws IOException {
+        UUID uuid = UUID.randomUUID();
+        Path link = Paths.get(properties.getSymlinkDirectory(), uuid.toString());
         LOGGER.info("Creating simbolic link: " + link + " with target: " + target + " to be monitored.");
         Files.createSymbolicLink(link, target);
     }
@@ -239,19 +241,25 @@ public class DirectoryWatcherService {
         return result;
     }
 
+    /**
+     *  This function walks the input directory looking for log files to be added for fluentd, these files were created while the pod
+     *  was stopped, that is, from the last modification added. 
+     */
     private void walkFileTree(Path dir) throws IOException {
         Path symLinkDir = Paths.get(properties.getSymlinkDirectory());
         final Instant lastModification = getLastModification(symLinkDir);
         Files.walkFileTree(dir, new SimpleFileVisitor<Path>() {
             @Override
             public FileVisitResult visitFile(Path path, BasicFileAttributes attrs) throws IOException {
-                BasicFileAttributes attr = Files.readAttributes(path, BasicFileAttributes.class);
-                if  ( (lastModification != null) && (attr.lastModifiedTime().toInstant().getEpochSecond() > lastModification.getEpochSecond()) ){
-                    UUID uuid = UUID.randomUUID();
-                    Path link = Paths.get(properties.getSymlinkDirectory(), uuid.toString());
-                    createSymbolicLink (path, link);
+
+                // Is a log file (jenkins job log)
+                if (Files.isRegularFile(path) && path.endsWith("log")){
+                    BasicFileAttributes attr = Files.readAttributes(path, BasicFileAttributes.class);
+                    if  ( (lastModification != null) && (attr.lastModifiedTime().toInstant().getEpochSecond() > lastModification.getEpochSecond()) ){
+                        createSymbolicLink (path);
+                    }
                 }
-                
+
                 return FileVisitResult.CONTINUE;
             }
         });
