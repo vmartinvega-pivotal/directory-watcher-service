@@ -1,0 +1,1 @@
+docker build -t vmartinvega/spring-boot-watcher-service .

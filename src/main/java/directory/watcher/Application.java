@@ -7,7 +7,6 @@ import org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.ApplicationContext;
 import directory.watcher.service.DirectoryWatcherService;
-
 import javax.annotation.PostConstruct;
 
 @SpringBootApplication(exclude = DataSourceAutoConfiguration.class)
