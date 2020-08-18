@@ -34,36 +34,14 @@ public class DirectoryWatcherService {
             LOGGER.info("Constructor: " + properties);
             Path dir = Paths.get(properties.getDirectory());
             Path symLinkDir = Paths.get(properties.getSymlinkDirectory());
-            initOutputSymlinkDirectory(symLinkDir);
+            initDirectory(symLinkDir);
+            initDirectory(dir);
             cleanSymbolicLinks(symLinkDir);
             purgeSymbolicLinks(symLinkDir);
             walkFileTree(dir);
             walkAndRegisterDirectories(dir);
         } catch (IOException ea) {
             LOGGER.error(ea);
-        }
-    }
-
-    /**
-     * Removes a symbolicLink in the output directory with target is target
-     */
-    private void deleteSymboliclinkWithTarget(Path target) throws IOException {
-        DirectoryStream<Path> stream = Files.newDirectoryStream(Paths.get(properties.getSymlinkDirectory()));
-        for (Path path : stream) {
-            if (Files.isSymbolicLink(path)) {
-                if (Files.isDirectory(target)) {
-                    if (path.getRoot().toString().startsWith(target.toString())){
-                        Files.delete(path);
-                    }
-                }else{
-                    Path targetSymlink = Files.readSymbolicLink(path);
-                    if (targetSymlink.equals(target)){
-                        Files.delete(path);
-                        LOGGER.info("Deleted symbolicLink: " + path);
-                        break;
-                    }
-                }
-            }
         }
     }
 
@@ -93,14 +71,14 @@ public class DirectoryWatcherService {
      */
     private void registerDirectory(Path dir) throws IOException {
         //WatchKey key = dir.register(watcher, ENTRY_CREATE, ENTRY_DELETE, ENTRY_MODIFY);
-        WatchKey key = dir.register(watcher, ENTRY_CREATE, ENTRY_DELETE);
+        WatchKey key = dir.register(watcher, ENTRY_CREATE);
         keys.put(key, dir);
     }
 
     /**
      * Inits the output directory where will be placed all symbolic links. 
      */
-    private void initOutputSymlinkDirectory(Path dir) throws IOException{
+    private void initDirectory(Path dir) throws IOException{
         if (!Files.exists(dir)) {
             Files.createDirectories(dir);
         } 
@@ -129,9 +107,21 @@ public class DirectoryWatcherService {
             if (Files.isSymbolicLink(path)) {
                 Path targetSymlink = Files.readSymbolicLink(path);
                 if (!Files.exists(targetSymlink)) {
+                    LOGGER.info("Deleted symbolicLink: " + path + ". The target " + targetSymlink + " does not exist ");
                     Files.delete(path);
                 }
             }
+        }
+    }
+
+    public synchronized void cleanOutputDir() throws IOException{
+        Instant now = Instant.now();
+        if ( ( now.getEpochSecond() - (properties.getMinutesToPurgeAndClean() * 60) ) > lastCleanDone.getEpochSecond() ){
+            LOGGER.info("Cleaning simbolic links on: " + now + ", Last time was done on: " + lastCleanDone );
+            Path outDir = Paths.get(properties.getSymlinkDirectory());
+            cleanSymbolicLinks(outDir);
+            purgeSymbolicLinks(outDir);
+            lastCleanDone = now;
         }
     }
  
@@ -178,19 +168,10 @@ public class DirectoryWatcherService {
                                 createSymbolicLink (child);
                             }
                         }
-                    }else if (kind == ENTRY_DELETE) {
-                        deleteSymboliclinkWithTarget(child);
                     }
 
-                    // Purging and cleaning directory
-                    //
-                    if ( ( Instant.now().getEpochSecond() - (properties.getMinutesToPurgeAndClean() * 60) ) > lastCleanDone.getEpochSecond() ){
-                        LOGGER.info("Purging and cleaning simbolic links...");
-                        Path outDir = Paths.get(properties.getSymlinkDirectory());
-                        purgeSymbolicLinks(outDir);
-                        cleanSymbolicLinks(outDir);
-                        lastCleanDone = Instant.now();
-                    }
+                    // Clean output directory
+                    cleanOutputDir();
                 } catch (IOException x) {
                     // do something useful
                 }
