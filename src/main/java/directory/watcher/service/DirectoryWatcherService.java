@@ -35,7 +35,6 @@ public class DirectoryWatcherService {
             Path dir = Paths.get(properties.getDirectory());
             Path symLinkDir = Paths.get(properties.getSymlinkDirectory());
             initDirectory(symLinkDir);
-            initDirectory(dir);
             cleanSymbolicLinks(symLinkDir);
             purgeSymbolicLinks(symLinkDir);
             walkFileTree(dir);
